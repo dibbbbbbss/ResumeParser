@@ -1,0 +1,16 @@
+Django>=5.0.6
+djangorestframework>=3.14.0
+djangorestframework-simplejwt>=5.2.2
+django-cors-headers>=3.14.0
+python-decouple>=3.8
+psycopg2-binary>=2.9.7
+spacy>=3.6.1
+PyMuPDF>=1.22.5
+requests>=2.25.1
+PyYAML>=5.4.1
+Jinja2>=3.0.3
+bcrypt>=3.2.0
+cryptography>=3.4.8
+oauthlib>=3.2.0
+sqlparse>=0.5.3
+typing_extensions>=4.14.0

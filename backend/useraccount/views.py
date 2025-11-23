@@ -11,6 +11,7 @@ from .renderers import UserRenderer
 from django.utils.http import urlsafe_base64_decode,urlsafe_base64_encode
 from django.utils.encoding import smart_str,force_bytes,DjangoUnicodeDecodeError
 from useraccount.models import User
+from .utils import Util
 def get_tokens_for_user(user):
     refresh = RefreshToken.for_user(user)
     
@@ -19,7 +20,6 @@ def get_tokens_for_user(user):
         'access':str(refresh.access_token),
     }
     
-
 class UserRegisterView(APIView):
     renderer_classes = [UserRenderer]
     def post(self,request,format=None):

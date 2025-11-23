@@ -1,77 +1,102 @@
-import React, { useEffect, useState } from 'react';
-import Footer from '../Footer';
-import Navbar2 from './Navbar2';
-import { useParams } from 'react-router-dom';
-import axios from 'axios';
-import "bootstrap/dist/css/bootstrap.min.css";
+import React, { useEffect, useState } from "react";
+import Footer from "../Footer";
+import Navbar2 from "./Navbar2";
+import { useParams } from "react-router-dom";
+import axios from "axios";
 
 const Ranking = () => {
   const { jobId } = useParams();
-  const [rankedResume, setRankedResume] = useState({});
+  const [rankedResumes, setRankedResumes] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
   useEffect(() => {
     const fetchRankedResumes = async () => {
+      setLoading(true);
+      setError("");
       try {
-        const response = await axios.get(`http://127.0.0.1:8000/recruit/get-ranked-resume/${jobId}/`, {
-          headers: {
-            Authorization: `Bearer ${localStorage.getItem('access_token')}`,
-          },
-        });
+        const response = await axios.get(
+          `http://127.0.0.1:8000/recruit/get-ranked-resume/${jobId}/`,
+          {
+            headers: {
+              Authorization: `Bearer ${localStorage.getItem("access_token")}`,
+            },
+          }
+        );
         if (response.status === 200) {
-          console.log(response);
-          setRankedResume(response.data.ranked_resumes);
-          console.log(typeof response.data.ranked_resumes);
+          const payload = response.data?.ranked_resumes;
+          let normalized = [];
+          if (Array.isArray(payload)) {
+            normalized = payload;
+          } else if (payload && typeof payload === "object") {
+            normalized = Object.values(payload);
+          }
+          setRankedResumes(normalized);
+          if (!normalized.length) {
+            setError("No ranked resumes available yet.");
+          }
         } else {
-          console.log('Failed to fetch ranked resume');
+          setError("Failed to fetch ranked resumes.");
         }
-      } catch (error) {
-        console.error('Failed to fetch ranked resumes', error.message);
+      } catch (fetchError) {
+        console.error("Failed to fetch ranked resumes", fetchError.message);
+        setError("Unable to load ranking data. Please try again later.");
+      } finally {
+        setLoading(false);
       }
     };
     fetchRankedResumes();
   }, [jobId]);
 
+  const formatScore = (score) =>
+    typeof score === "number" ? score.toFixed(2) : "N/A";
+
   return (
     <>
       <Navbar2 />
-      <div className="container mt-4">
-        <div>
-          <h1 className="text-center pb-4">Ranking</h1>
-          <div>
-            {rankedResume && typeof rankedResume === 'object' ? (
-              Array.isArray(rankedResume) ? (
-                // If it's an array
-                <ul className="list-group">
-                  {rankedResume.map((resume, index) => (
-                    <li key={index} className="list-group-item bg-transparent shadow-sm mb-3">
-                      <h3>Rank {index + 1}</h3>
-                      <p>Name: {resume.name}</p>
-                      <p>Email: {resume.email}</p>
-                      <p>Score: {resume.score ? resume.score.toFixed(2) : 'N/A'}</p>
-                      <p>Job Post: {resume.jobpost}</p>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                // If it's an object
-                <ul className="list-group">
-                  {Object.entries(rankedResume).map(([key, resume], index) => (
-                    <li key={key} className="list-group-item bg-transparent shadow-sm my-3">
-                      <h3>Rank {index + 1}</h3>
-                      <p>Name: {resume.name}</p>
-                      <p>Email: {resume.email}</p>
-                      <p>Score: {resume.score ? resume.score.toFixed(2) : 'N/A'}</p>
-                      <p>Job Post: {resume.jobpost}</p>
-                    </li>
-                  ))}
-                </ul>
-              )
-            ) : (
-              <p className="text-center">No ranked resumes available or data format is unexpected.</p>
-            )}
-          </div>
+      <section className="ranking_page">
+        <div className="ranking_header">
+          <p className="section-kicker">Match Insights</p>
+          <h1>Resume ranking for job #{jobId}</h1>
+          <p className="section-subtitle">
+            We compare every submitted resume against the job description,
+            scoring skills, experience, and education. Higher scores mean better
+            alignment with the requirements.
+          </p>
         </div>
-      </div>
+
+        {loading ? (
+          <div className="jobs_loader">
+            <div className="spinner-border" role="status">
+              <span className="visually-hidden">Loading...</span>
+            </div>
+            <p>Crunching the scores...</p>
+          </div>
+        ) : error ? (
+          <div className="alert alert-info" role="alert">
+            {error}
+          </div>
+        ) : (
+          <div className="ranking_grid">
+            {rankedResumes.map((resume, index) => (
+              <article key={`${resume.id || index}`} className="ranking_card">
+                <div className="ranking_rank">
+                  <span>#{index + 1}</span>
+                  <p>Rank</p>
+                </div>
+                <div className="ranking_content">
+                  <h3>{resume.name || "Candidate"}</h3>
+                  <p className="ranking_meta">{resume.email || "No email"}</p>
+                  <div className="ranking_badges">
+                    <span>{formatScore(resume.score)} score</span>
+                    {resume.jobpost && <span>{resume.jobpost}</span>}
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
       <Footer />
     </>
   );

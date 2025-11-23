@@ -14,6 +14,7 @@ import ListJobDesc from "./Components/Dashboard/ListJobDesc.jsx";
 import './Components/interceptor/axios.js';
 import AvailableJob from "./Components/Dashboard/AvailableJob.jsx";
 import JobDetail from "./Components/Dashboard/JobDetail.jsx";
+import MyApplications from "./Components/Dashboard/MyApplications.jsx";
 
 const App = () => {
   
@@ -29,6 +30,7 @@ const App = () => {
           <Route path="/recruiter" element={<Recruiter/>} />
           <Route path="/list-job-desc" element={<ListJobDesc/>}/>
           <Route path="/job-detail/:jobId" element={<JobDetail/>}/>
+          <Route path="/my-applications" element={<MyApplications/>}/>
           <Route path="/viewjob" element={<Viewjob/>} />
           <Route path="/ranking/:jobId" element={<Ranking/>} />
           <Route path="/logout" element={<Logout/>} />

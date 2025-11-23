@@ -1,6 +1,7 @@
 from django.views.decorators.csrf import csrf_exempt
 import os
 import tempfile
+import re
 from django.http import JsonResponse
 from rest_framework.decorators import api_view, permission_classes,parser_classes
 # from rest_framework.permissions import AllowAny
@@ -11,10 +12,67 @@ from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import UploadedFile
 from .models import Resume  # Import the Parse model
 from .models import JobDesc  # Import the Parse model
+from .models import RecruiterAlert
 import ast
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework import status
 from rest_framework.parsers import MultiPartParser
+
+DEFAULT_MATCH_WEIGHTS = {'experience': 0.3, 'skills': 0.4, 'degree': 0.05, 'worked_as': 0.25}
+
+
+def normalize_years_of_experience(experience):
+    if not experience:
+        return 0
+    match = re.search(r'\d+(\.\d+)?', str(experience))
+    if match:
+        try:
+            return float(match.group())
+        except ValueError:
+            return 0
+    return 0
+
+
+def normalize_skills(resume_skills, required_skills):
+    if not resume_skills or not required_skills:
+        return 0
+    resume_skills_list = [skill.strip().lower() for skill in str(resume_skills).split(',') if skill.strip()]
+    required_skills_list = [skill.strip().lower() for skill in str(required_skills).split(',') if skill.strip()]
+    matching_skills = sum(1 for skill in resume_skills_list if skill in required_skills_list)
+    return matching_skills
+
+
+def normalize_degree(resume_degree, required_degree):
+    if not resume_degree or not required_degree:
+        return 0
+    return 1 if resume_degree.lower() in required_degree.lower() else 0
+
+
+def normalize_worked_as(resume_worked_as, jobpost):
+    if not resume_worked_as or not jobpost:
+        return 0
+    return 1 if resume_worked_as.lower() in jobpost.lower() else 0
+
+
+def calculate_resume_score(resume_entry, job_entry, weights=None):
+    if weights is None:
+        weights = DEFAULT_MATCH_WEIGHTS
+
+    normalized_experience = normalize_years_of_experience(resume_entry.get('resume_experience'))
+    normalized_skills = normalize_skills(resume_entry.get('resume_skills'), job_entry.get('required_skills'))
+    normalized_degree = normalize_degree(resume_entry.get('resume_degree'), job_entry.get('required_degree'))
+    normalized_worked_as = normalize_worked_as(resume_entry.get('resume_worked_as'), job_entry.get('jobpost'))
+    required_experience = normalize_years_of_experience(job_entry.get('required_experience'))
+    experience_difference = normalized_experience - required_experience
+
+    score = (
+        (weights['experience'] * experience_difference)
+        + (weights['skills'] * normalized_skills)
+        + (weights['degree'] * normalized_degree)
+        + (weights['worked_as'] * normalized_worked_as)
+    )
+    return score
+
 
 # post request for resume parser
 
@@ -36,6 +94,10 @@ def parse_resume(request):
             print('Invalid file format')
             return JsonResponse({'error': 'Invalid file format'}, status=status.HTTP_400_BAD_REQUEST)
 
+        allowed_formats = ['application/pdf']
+        if resume_file.content_type not in allowed_formats:
+            return JsonResponse({'error': 'Invalid file format. Only PDF resumes are supported.'}, status=status.HTTP_400_BAD_REQUEST)
+
         with tempfile.NamedTemporaryFile(delete=False) as temp_file:
             for chunk in resume_file.chunks():
                 temp_file.write(chunk)
@@ -53,6 +115,12 @@ def parse_resume(request):
         os.unlink(temp_file_path)
 
         if entities:
+            def truncate(value, limit=255):
+                if not value:
+                    return ''
+                value = value.strip()
+                return value[:limit]
+
             resume_data = {
                 'name': '',
                 'email': '',
@@ -74,7 +142,7 @@ def parse_resume(request):
 
                 if entity_label == 'name':
                     resume_data['name'] = entity_text
-                elif entity_label == 'email address':
+                elif entity_label in ('email address', 'email'):
                     resume_data['email'] = entity_text
                 elif entity_label == 'location':
                     resume_data['location'] = entity_text
@@ -93,8 +161,22 @@ def parse_resume(request):
                 elif entity_label == 'linkedin link':
                     resume_data['linkedin'] = entity_text
 
-            resume_data['skills'] = ', '.join(resume_data['skills'])
+            resume_data['skills'] = truncate(', '.join(resume_data['skills']), limit=500)
+            resume_data['name'] = truncate(resume_data['name'])
+            resume_data['email'] = resume_data['email'].strip() if resume_data['email'] else ''
+            resume_data['location'] = truncate(resume_data['location'])
+            resume_data['college_name'] = truncate(resume_data['college_name'])
+            resume_data['degree'] = truncate(resume_data['degree'])
+            resume_data['companies'] = truncate(resume_data['companies'])
+            resume_data['worked_as'] = truncate(resume_data['worked_as'])
+            resume_data['experience'] = truncate(resume_data['experience'])
+            resume_data['linkedin'] = resume_data['linkedin'].strip() if resume_data['linkedin'] else ''
             resume_data['extracted_data'] = str(resume_data['extracted_data'])
+
+            if not resume_data['email']:
+                resume_data['email'] = request.user.email or 'Unknown'
+
+            resume_data['submitted_by'] = request.user.id
 
             resume_serializer = ResumeSerializer(data=resume_data)
 
@@ -107,6 +189,32 @@ def parse_resume(request):
                     parse_instance.save()
                 except JobDesc.DoesNotExist:
                     return JsonResponse({'error': 'Job description not found'}, status=status.HTTP_404_NOT_FOUND)
+
+                if job_desc.user:
+                    resume_entry = {
+                        'resume_id': parse_instance.id,
+                        'name': resume_data['name'],
+                        'email': resume_data['email'],
+                        'resume_experience': resume_data['experience'],
+                        'resume_skills': resume_data['skills'],
+                        'resume_degree': resume_data['degree'],
+                        'resume_worked_as': resume_data['worked_as'],
+                    }
+                    job_entry = {
+                        'jd_id': job_desc.id,
+                        'jobpost': job_desc.jobpost,
+                        'required_degree': job_desc.degree,
+                        'required_skills': job_desc.skills,
+                        'required_experience': job_desc.experience,
+                    }
+                    score = calculate_resume_score(resume_entry, job_entry)
+                    if score >= 0.5:
+                        RecruiterAlert.objects.create(
+                            recruiter=job_desc.user,
+                            jobdesc=job_desc,
+                            resume=parse_instance,
+                            score=score,
+                        )
 
                 return JsonResponse({'success': 'Resume data extracted and saved successfully', 'id': parse_instance.id}, status=status.HTTP_200_OK)
             else:
@@ -245,7 +353,7 @@ def get_parsedjd_data(request):
     
 
 @csrf_exempt
-@permission_classes([IsAuthenticated])
+@permission_classes([AllowAny])
 @api_view(['GET'])
 def get_job_data(request):
     if request.method == 'GET':
@@ -275,7 +383,7 @@ def get_job_data(request):
 
 
 @csrf_exempt
-@permission_classes([IsAuthenticated])
+@permission_classes([AllowAny])
 @api_view(['GET'])
 def get_job_detail(request,job_id):
     if request.method == 'GET':
@@ -332,59 +440,18 @@ def get_ranked_resume(request,job_desc_id):
     # print(resume_data)
 
 
-    def normalize_years_of_experience(experience):
-        return float(experience.split()[0]) if experience else 0
-    def normalize_skills(resume_skills, required_skills):
-        resume_skills_list = [skill.strip().lower() for skill in resume_skills.split(',')]
-        required_skills_list = [skill.strip().lower() for skill in required_skills.split(',')]
-
-        matching_skills = sum(1 for skill in resume_skills_list if skill in required_skills_list)
-        return matching_skills
-
-    def normalize_degree(resume_degree, required_degree):
-        return 1 if resume_degree.lower() in required_degree.lower() else 0
-
-    def normalize_worked_as(resume_worked_as, jobpost):   
-        return 1 if resume_worked_as.lower() in jobpost.lower() else 0
-      
-    def calculate_score(resume, job_description, weights):
-        # Normalize data
-        normalized_experience = normalize_years_of_experience(resume['resume_experience'])
-        
-        normalized_skills = normalize_skills(resume['resume_skills'], job_description['required_skills'])
-        print("Normalized Skills:", normalized_skills)
-
-        normalized_degree = normalize_degree(resume['resume_degree'], job_description['required_degree'])
-
-        normalized_worked_as = normalize_worked_as(resume['resume_worked_as'], job_description['jobpost'])
-
-        # Calculate difference in experience
-        required_experience = normalize_years_of_experience(job_description['required_experience'])
-        experience_difference = normalized_experience - required_experience
-        print("Experience Difference:", experience_difference)
-
-        # Calculate scores
-        score = (weights['experience'] * experience_difference) + (weights['skills'] * normalized_skills) + (weights['degree'] * normalized_degree) + (weights['worked_as'] * normalized_worked_as)
-        print("Score:", score)
-        return score
-
     def rank_resumes(resumes, job_description, weights):
         ranked_resumes = []
         print(resumes)
         for resume in resumes:
-        #  for job_description in job_descriptions:
-            print("Job desc: ",job_description)
-            score = calculate_score(resume,job_description, weights)       
-            print('Score: ',score)
-    
-            
+            score = calculate_resume_score(resume, job_description, weights)
             ranked_resumes.append({'id': resume['resume_id'], 'name': resume['name'], 'email': resume['email'], 'score': score, 'jobpost': job_description['jobpost'],})
         ranked_resumes.sort(key=lambda x: x['score'], reverse=True)
         print("ranked resumes: ",ranked_resumes)
         return ranked_resumes[:10]
 
     # Assigning wts.
-    weights = {'experience': 0.3, 'skills': 0.4, 'degree': 0.05, 'worked_as': 0.25}
+    weights = DEFAULT_MATCH_WEIGHTS
 
     # Rank resumes
     ranked_resumes = rank_resumes(resume_entities, job_description_entities, weights)
@@ -398,6 +465,113 @@ def get_ranked_resume(request,job_desc_id):
         
         
         
-    return JsonResponse({'ranked_resumes': ranked_resumes}) 
- else:
+        return JsonResponse({'ranked_resumes': ranked_resumes})
+
     return JsonResponse({'error': 'Method not allowed'}, status=405)
+
+
+@csrf_exempt
+@permission_classes([IsAuthenticated])
+@api_view(['DELETE'])
+def delete_job_desc(request, job_id):
+    if request.method == 'DELETE':
+        try:
+            job = JobDesc.objects.get(id=job_id, user=request.user)
+        except JobDesc.DoesNotExist:
+            return JsonResponse({'error': 'Job description not found'}, status=404)
+
+        job.delete()
+        return JsonResponse({'success': 'Job description deleted successfully'})
+
+    return JsonResponse({'error': 'Method not allowed'}, status=405)
+
+
+@csrf_exempt
+@permission_classes([IsAuthenticated])
+@api_view(['DELETE'])
+def delete_application(request, application_id):
+    if request.method != 'DELETE':
+        return JsonResponse({'error': 'Method not allowed'}, status=405)
+
+    try:
+        application = Resume.objects.get(id=application_id, submitted_by=request.user)
+    except Resume.DoesNotExist:
+        return JsonResponse({'error': 'Application not found'}, status=404)
+
+    application.delete()
+    return JsonResponse({'success': 'Application removed successfully'})
+
+
+@csrf_exempt
+@permission_classes([IsAuthenticated])
+@api_view(['GET'])
+def my_applications(request):
+    if request.method != 'GET':
+        return JsonResponse({'error': 'Method not allowed'}, status=405)
+
+    resumes = (
+        Resume.objects.filter(submitted_by=request.user)
+        .select_related('jobdesc')
+        .order_by('-id')
+    )
+
+    applications = []
+    for resume in resumes:
+        job = resume.jobdesc
+        applications.append({
+            'id': resume.id,
+            'job_id': job.id if job else None,
+            'jobpost': job.jobpost if job else 'Unknown role',
+            'company': getattr(job, 'company', 'Project III'),
+            'status': 'Submitted',
+            'email': resume.email or (resume.submitted_by.email if resume.submitted_by else ''),
+            'score_preview': None,
+            'skills': resume.skills,
+            'experience': resume.experience,
+        })
+
+    return JsonResponse({'applications': applications})
+
+
+@csrf_exempt
+@permission_classes([IsAuthenticated])
+@api_view(['GET'])
+def recruiter_alerts(request):
+    if request.method != 'GET':
+        return JsonResponse({'error': 'Method not allowed'}, status=405)
+
+    alerts = (
+        RecruiterAlert.objects.filter(recruiter=request.user, is_read=False)
+        .select_related('resume', 'jobdesc')
+        .order_by('-created_at')
+    )
+    payload = []
+    for alert in alerts:
+        payload.append({
+            'id': alert.id,
+            'job_id': alert.jobdesc.id,
+            'jobpost': alert.jobdesc.jobpost,
+            'resume_id': alert.resume.id,
+            'candidate': alert.resume.name or alert.resume.email,
+            'email': alert.resume.email,
+            'score': round(alert.score, 2),
+            'created_at': alert.created_at.isoformat(),
+        })
+    return JsonResponse({'alerts': payload})
+
+
+@csrf_exempt
+@permission_classes([IsAuthenticated])
+@api_view(['POST'])
+def mark_alert_read(request, alert_id):
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Method not allowed'}, status=405)
+
+    try:
+        alert = RecruiterAlert.objects.get(id=alert_id, recruiter=request.user)
+    except RecruiterAlert.DoesNotExist:
+        return JsonResponse({'error': 'Alert not found'}, status=404)
+
+    alert.is_read = True
+    alert.save(update_fields=['is_read'])
+    return JsonResponse({'success': 'Alert dismissed'})

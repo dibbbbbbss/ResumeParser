@@ -15,6 +15,7 @@ const Register = () => {
   const [passwordError, setPasswordError] = useState("")
   const [usernameError,setUsernameError] = useState("")
   const [checkPasswordError,setCheckPasswordError] = useState("")
+  const [isSubmitting,setIsSubmitting] = useState(false)
 
 
   const navigate = useNavigate();
@@ -49,35 +50,24 @@ const Register = () => {
     e.preventDefault();
 
     try{
-
-      const response = await axios.post("http://localhost:8000/api/register/",
+      setIsSubmitting(true)
+      const response = await axios.post("http://127.0.0.1:8000/api/register/",
       {
         name:username,email:email,password:password,password2:cpassword,role:role});
         console.log(response.data)
         setRegistrationState('success');
 
         localStorage.setItem('access_token',response.data.token['access'])
-    localStorage.setItem('refresh_token',response.data.token['refresh'])
-    axios.defaults.headers.common['Authorization'] = `Bearer ${response.data.token['access']}`;
-        //Handle the case
+        localStorage.setItem('refresh_token',response.data.token['refresh'])
+        axios.defaults.headers.common['Authorization'] = `Bearer ${response.data.token['access']}`;
         if(role === 'recruiter'){
           navigate('/recruiter');
-
         }else if(role === 'user'){
-        navigate('/available-job');
-
-          }
+          navigate('/available-job');
+        }
     }catch(error){
-        // Handle error
-        // if (error.response.data.errors['non_field_errors']) {
-        //   console.log(error.response.data); // Log the error response to debug
-        //   setRegistrationState(error.response.data.errors['non_field_errors'] || "Registration failed");
-        // } else {
-        //   console.log("Error during registration:", error);
-        //   setRegistrationState(error.response.data.errors['email']);
-        // }
         if (error.response && error.response.data) {
-          const errors = error.response.data;
+          const errors = error.response.data.errors || error.response.data;
     
           if (errors.email) {
             setRegistrationState(errors.email[0]);
@@ -85,6 +75,8 @@ const Register = () => {
             setRegistrationState(errors.username[0]);
           } else if (errors.non_field_errors) {
             setRegistrationState(errors.non_field_errors[0]);
+          } else if (errors.message){
+            setRegistrationState(errors.message);
           } else {
             setRegistrationState("Registration failed. Please try again.");
           }
@@ -92,6 +84,8 @@ const Register = () => {
           setRegistrationState("An unknown error occurred. Please try again.");
         }
       
+    }finally{
+      setIsSubmitting(false)
     }
   };
 
@@ -165,8 +159,8 @@ const Register = () => {
         <option value="user">Job Seeker</option>
         <option value="recruiter">Job Recruiter</option>
       </select>
-            <button type="submit" className="registerbtn">
-              Register
+            <button type="submit" className="registerbtn" disabled={isSubmitting}>
+              {isSubmitting ? 'Submitting...' : 'Register'}
             </button>
 
             <p><span style={{color:'red'}}>{registrationState}</span></p>

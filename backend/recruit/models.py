@@ -109,6 +109,9 @@ class JobDesc(models.Model):
     
 # Create your models here.
 class Resume(models.Model):
+    submitted_by = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="submitted_resumes", null=True, blank=True
+    )
     name = models.CharField(max_length= 255)
     jobdesc = models.ForeignKey(JobDesc,on_delete=models.CASCADE)
     email = models.EmailField(default='Unknown')
@@ -125,3 +128,14 @@ class Resume(models.Model):
     def __str__(self):
         return self.email
 
+
+class RecruiterAlert(models.Model):
+    recruiter = models.ForeignKey(User, on_delete=models.CASCADE, related_name="alerts")
+    jobdesc = models.ForeignKey(JobDesc, on_delete=models.CASCADE, related_name="alerts")
+    resume = models.ForeignKey(Resume, on_delete=models.CASCADE, related_name="alerts")
+    score = models.FloatField(default=0)
+    is_read = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Alert for {self.jobdesc.jobpost} ({self.recruiter.email})"

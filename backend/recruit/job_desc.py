@@ -1,9 +1,14 @@
 import spacy
+from pathlib import Path
 
 import sys,fitz
 
-model_path="/Users/binay/Resume_parser/backend/ml/JdModel/output/model-best"
-jdnlp = spacy.load(model_path)
+BASE_DIR = Path(__file__).resolve().parent.parent
+model_path= BASE_DIR / "ml" / "JdModel" / "output" / "model-best"
+try:
+    jdnlp = spacy.load(model_path)
+except OSError:
+    jdnlp = spacy.blank("en")
 
 def extract_jdtext_from_pdf(pdf_path):
     text=""

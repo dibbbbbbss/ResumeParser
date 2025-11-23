@@ -3,6 +3,10 @@ from rest_framework import serializers
 from .models import Resume
 
 class ResumeSerializer(serializers.ModelSerializer):
+    linkedin = serializers.CharField(
+        required=False, allow_blank=True, allow_null=True
+    )
+
     class Meta:
         model = Resume
         fields = '__all__'
@@ -19,7 +23,8 @@ class ResumeSerializer(serializers.ModelSerializer):
             'skills': {'required': False, 'allow_blank': True},
             'experience': {'required': False, 'allow_blank': True},
             'linkedin': {'required': False, 'allow_blank': True},
-            'extracted_data': {'required': False, 'allow_blank': True}
+            'extracted_data': {'required': False, 'allow_blank': True},
+            'submitted_by': {'required': False, 'allow_null': True},
         }
     
     def validate_skills(self, value):

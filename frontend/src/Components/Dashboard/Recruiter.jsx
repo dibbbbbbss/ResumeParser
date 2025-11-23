@@ -1,16 +1,67 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import axios from "axios";
 import Footer from "../Footer";
 import Navbar2 from "./Navbar2";
+import { Link } from "react-router-dom";
 
 const Recruiter = () => {
-  const [result, setResult] = useState(""); // State to hold upload result message
-  const [file, setFile] = useState(null);   // State to hold the selected file
-  const fileInputRef = useRef(null);        // Ref to file input element
+  const [result, setResult] = useState("");
+  const [file, setFile] = useState(null);
+  const fileInputRef = useRef(null);
+  const [alerts, setAlerts] = useState([]);
+  const [alertsLoading, setAlertsLoading] = useState(true);
+  const [alertError, setAlertError] = useState("");
 
   // Function to handle file selection
   const handleFileChange = (e) => {
     setFile(e.target.files[0]);
+  };
+
+  const fetchAlerts = async () => {
+    setAlertsLoading(true);
+    setAlertError("");
+    try {
+      const response = await axios.get(
+        "http://127.0.0.1:8000/recruit/alerts/",
+        {
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem("access_token")}`,
+          },
+        }
+      );
+      if (response.status === 200) {
+        setAlerts(response.data?.alerts || []);
+      } else {
+        setAlertError("Unable to load alerts.");
+      }
+    } catch (error) {
+      setAlertError("Unable to load alerts.");
+    } finally {
+      setAlertsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchAlerts();
+  }, []);
+
+  const handleDismissAlert = async (alertId) => {
+    try {
+      const response = await axios.post(
+        `http://127.0.0.1:8000/recruit/alerts/${alertId}/read/`,
+        {},
+        {
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem("access_token")}`,
+          },
+        }
+      );
+      if (response.status === 200) {
+        setAlerts((prev) => prev.filter((alert) => alert.id !== alertId));
+      }
+    } catch (error) {
+      console.error("Failed to dismiss alert", error);
+    }
   };
 
   // Function to handle form submission
@@ -50,6 +101,60 @@ const Recruiter = () => {
   return (
     <>
       <Navbar2 />
+      <section className="alerts_panel">
+        <div className="alerts_header">
+          <div>
+            <p className="section-kicker">High-priority matches</p>
+            <h2>New resumes worth reviewing</h2>
+          </div>
+          <button className="btn btn-outline btn-small" onClick={fetchAlerts}>
+            Refresh
+          </button>
+        </div>
+        {alertsLoading ? (
+          <div className="jobs_loader">
+            <div className="spinner-border" role="status">
+              <span className="visually-hidden">Loading...</span>
+            </div>
+            <p>Checking for matches...</p>
+          </div>
+        ) : alertError ? (
+          <div className="alert alert-info" role="alert">
+            {alertError}
+          </div>
+        ) : alerts.length === 0 ? (
+          <div className="alert alert-info" role="alert">
+            No unread alerts. You’re all caught up!
+          </div>
+        ) : (
+          <div className="alerts_grid">
+            {alerts.map((alert) => (
+              <article key={alert.id} className="alert_card">
+                <div>
+                  <p className="section-kicker">{alert.jobpost}</p>
+                  <h3>{alert.candidate}</h3>
+                  <p className="alert_meta">{alert.email}</p>
+                </div>
+                <div className="alert_actions">
+                  <span className="alert_score">{alert.score}</span>
+                  <Link
+                    to={`/ranking/${alert.job_id}`}
+                    className="btn btn-primary btn-small"
+                  >
+                    View ranking
+                  </Link>
+                  <button
+                    className="btn btn-outline btn-small"
+                    onClick={() => handleDismissAlert(alert.id)}
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
       <div className="parser">
         <div className="parsing_container">
           <h1>

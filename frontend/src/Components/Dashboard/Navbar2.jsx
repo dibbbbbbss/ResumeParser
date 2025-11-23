@@ -3,26 +3,20 @@ import { Link } from "react-router-dom";
 
 const Navbar2 = () => {
   return (
-    <>
-      <nav className="navbar">
-        <h1 style={{paddingLeft:'0.9rem'}}>Logo</h1>
-        <ul>
-    
-          <li>
-            <Link to="/recruiter">Recruit</Link>
-          </li>
-          <li>
-          <Link to="/list-job-desc">Job List</Link>
-        </li>
-     
-          <li>
-            <Link to={"/logout"} className="signin">
-              Logout
-            </Link>
-          </li>
-        </ul>
-      </nav>
-    </>
+    <nav className="navbar">
+      <div className="navbar_brand">Project III - Dibyan and Brihat</div>
+      <div className="navbar_actions">
+        <Link to="/recruiter" className="btn btn-outline">
+          Recruit
+        </Link>
+        <Link to="/list-job-desc" className="btn btn-primary">
+          Job List
+        </Link>
+        <Link to="/logout" className="btn btn-danger">
+          Logout
+        </Link>
+      </div>
+    </nav>
   );
 };
 

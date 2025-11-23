@@ -1,8 +1,14 @@
 import spacy
-
+from pathlib import Path
 import sys, fitz
-model_path = "/Users/binay/Resume_parser/backend/ml/ResumeModel/output/model-best"
-rnlp = spacy.load(model_path)
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+model_path = BASE_DIR / "ml" / "ResumeModel" / "output" / "model-best"
+
+try:
+    rnlp = spacy.load(model_path)
+except OSError:
+    rnlp = spacy.blank("en")
 
 def extract_text_from_pdf(pdf_path):
     text = ""
